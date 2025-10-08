@@ -1,8 +1,10 @@
 const User = require("../models/userModel");
 const generateAccessToken = require("../config/generateToken");
 const asyncHandler = require("express-async-handler");
-const sendResetEmail = require("../utils/sendEmail");
+const sendMail = require("../utils/sendEmail");
 const jwt = require("jsonwebtoken");
+
+const validateAppCode = require("../utils/validateAppCode");
 
 const login = asyncHandler(async (req, res) => {
   const emailRegex = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,4}$/i;
@@ -13,6 +15,9 @@ const login = asyncHandler(async (req, res) => {
   } else if (!emailRegex.test(req.body.email)) {
     res.status(400);
     throw new Error("Enter a valid email address");
+  } else if (!(await validateAppCode(req.body.appCode))) {
+    res.status(400);
+    throw new Error("Enter a valid app code");
   } else {
     const registeredUser = await User.findOne({ email: req.body.email });
 
@@ -34,6 +39,26 @@ const login = asyncHandler(async (req, res) => {
     } else {
       throw new Error("Incorrect credentials");
     }
+  }
+});
+
+const getUsers = asyncHandler(async (req, res) => {
+  // optional query param: ?name=someName
+  const { name } = req.query;
+
+  try {
+    let users;
+    if (!name) {
+      users = await User.find({});
+    } else {
+      // exact match but case-insensitive
+      const regex = new RegExp(`^${name}$`, "i");
+      users = await User.find({ name: regex });
+    }
+
+    return res.json({ success: true, data: users });
+  } catch (err) {
+    throw new Error("Error fetching users:", err.message);
   }
 });
 
@@ -106,7 +131,20 @@ const forgotPassword = asyncHandler(async (req, res) => {
 
   const resetUrl = `http://localhost:3000/reset-password/${resetToken}`;
 
-  await sendResetEmail({ to: user.email, resetUrl });
+  await sendMail({
+    to: user.email,
+    subject: "Password Reset Request",
+    html: `
+    <p>You requested to reset your password.</p>
+    <p>Click the link below to reset it:</p>
+    <a href="${resetUrl}">${resetUrl}</a>
+    <p>This link will expire in 15min.</p>
+
+    <p>Best regards,</p>
+      <p>Support Team</p>
+   <p><img src="https://res.cloudinary.com/dj0qzdrqv/image/upload/v1746068334/KIONYX_Logo_Design_Concept_2_c5mgni.jpg" alt="Company Logo" width="150" /></p>
+  `,
+  });
 
   res.json({ success: true, message: "Reset link sent to your email." });
 });
@@ -161,4 +199,4 @@ const resetPassword = asyncHandler(async (req, res) => {
   res.json({ success: true, message: "Password reset successful" });
 });
 
-module.exports = { login, register, forgotPassword, resetPassword };
+module.exports = { login, register, forgotPassword, resetPassword, getUsers };

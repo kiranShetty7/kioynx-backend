@@ -1,38 +1,56 @@
 const nodemailer = require("nodemailer");
 
-const sendResetEmail = async ({ to, resetUrl }) => {
-  const transporter = nodemailer.createTransport({
-    host: "smtp.zoho.in",
-    port: 465,
-    secure: true,
-    auth: {
-      user: process.env.EMAIL_USERNAME,
-      pass: process.env.EMAIL_PASSWORD,
-    },
-  });
+// create transporter once (reused)
+const transporter = nodemailer.createTransport({
+  host: "smtp.zoho.in",
+  port: 465,
+  secure: true,
+  auth: {
+    user: process.env.EMAIL_USERNAME,
+    pass: process.env.EMAIL_PASSWORD,
+  },
+});
 
-  const mailOptions = {
-    from: `"Kionyx" <${process.env.EMAIL_USERNAME}>`,
-    to,
-    subject: "Password Reset Request",
-    html: `
-    <p>You requested to reset your password.</p>
-    <p>Click the link below to reset it:</p>
-    <a href="${resetUrl}">${resetUrl}</a>
-    <p>This link will expire in 15min.</p>
-  
-    <p>Best regards,</p>
-      <p>Support Team</p>
-   <p><img src="https://res.cloudinary.com/dj0qzdrqv/image/upload/v1746068334/KIONYX_Logo_Design_Concept_2_c5mgni.jpg" alt="Company Logo" width="150" /></p>
-  `,
+async function sendMail(options = {}) {
+  if (!options) throw new Error("No mail options provided");
+
+  let mailOptions = {
+    from: options.from || `"Kionyx" <${process.env.EMAIL_USERNAME}>`,
+    to: options.to,
+    cc: options.cc,
+    bcc: options.bcc,
+    subject: options.subject || "",
+    text: options.text,
+    html: options.html,
+    attachments: options.attachments,
+    replyTo: options.replyTo,
   };
 
+  // Remove undefined keys so nodemailer doesn't receive undefined values
+  Object.keys(mailOptions).forEach((k) => {
+    if (mailOptions[k] === undefined) delete mailOptions[k];
+  });
+
+  // Validate required fields: at minimum we need a recipient and body
+  if (!mailOptions.to || (!mailOptions.html && !mailOptions.text)) {
+    console.error("sendMail: missing required mail fields", {
+      to: mailOptions.to,
+      hasHtml: !!mailOptions.html,
+      hasText: !!mailOptions.text,
+      providedOptions: options,
+    });
+    throw new Error(
+      "Missing required mail fields: 'to' and ('html' or 'text')"
+    );
+  }
+
   try {
-    await transporter.sendMail(mailOptions);
+    const info = await transporter.sendMail(mailOptions);
+    return info;
   } catch (err) {
     console.error("Email sending failed:", err);
-    throw new Error("Failed to send password reset email");
+    throw new Error("Failed to send email");
   }
-};
+}
 
-module.exports = sendResetEmail;
+module.exports = sendMail;
