@@ -24,7 +24,7 @@ app.get("/", (req, res) => {
   res.send(`<h1>Kionyx apis are working</h1>`);
 });
 app.use("/v1/user", userRouter);
-app.use("v1/apps", appRouter);
+app.use("/v1/apps", appRouter);
 
 app.use(errorMiddleware.notFound);
 app.use(errorMiddleware.errorHandler);
