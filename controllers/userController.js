@@ -4,20 +4,14 @@ const asyncHandler = require("express-async-handler");
 const sendMail = require("../utils/sendEmail");
 const jwt = require("jsonwebtoken");
 
-const validateAppCode = require("../utils/validateAppCode");
-
 const login = asyncHandler(async (req, res) => {
   const emailRegex = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,4}$/i;
-
   if (!req.body.email || !req.body.password) {
     res.status(400);
     throw new Error("Enter both email and password");
   } else if (!emailRegex.test(req.body.email)) {
     res.status(400);
     throw new Error("Enter a valid email address");
-  } else if (!(await validateAppCode(req.body.appCode))) {
-    res.status(400);
-    throw new Error("Enter a valid app code");
   } else {
     const registeredUser = await User.findOne({ email: req.body.email });
 
@@ -28,7 +22,6 @@ const login = asyncHandler(async (req, res) => {
       const data = {
         name: registeredUser.name,
         email: registeredUser.email,
-        userId: registeredUser._id,
         profilePic: registeredUser?.profilePic,
         token: generateAccessToken(registeredUser._id, "1d"),
       };
@@ -150,7 +143,6 @@ const resetPassword = asyncHandler(async (req, res) => {
 
   let decoded;
   try {
-    console.log(decoded, "decoded");
     decoded = jwt.verify(token, process.env.SECRET);
     console.log(decoded, "decoded");
   } catch (error) {
@@ -180,29 +172,75 @@ const resetPassword = asyncHandler(async (req, res) => {
 });
 
 const getUsers = asyncHandler(async (req, res) => {
-  // Support both ?name=... OR ?email=...
+  // Support both ?name=... OR ?email=... or return all users if no search
   const search = req.query.name || req.query.email;
 
   try {
-    if (!search || search.trim() === "") {
-      return res.json({ success: true, data: [] });
+    let query = {};
+
+    if (search && search.trim() !== "") {
+      // Case-insensitive partial match for name or email
+      const regex = new RegExp(search, "i");
+      query = { $or: [{ name: regex }, { email: regex }] };
     }
 
-    // Case-insensitive partial match for name or email
-    const regex = new RegExp(search, "i");
+    const users = await User.find(query)
+      .select("-password -__v")
+      .sort({ createdAt: -1 }); // Sort by creation date, newest first
 
-    const users = await User.find({
-      $or: [{ name: regex }, { email: regex }],
-    }).select("-password"); // Exclude password field
-
-    return res.json({ success: true, data: users });
+    return res.json({
+      success: true,
+      data: users,
+      total: users.length,
+    });
   } catch (err) {
     console.error("Error fetching users:", err.message);
     res.status(500).json({
       success: false,
       message: "Error fetching users",
+      error: err.message,
     });
   }
 });
 
-module.exports = { login, register, forgotPassword, resetPassword, getUsers };
+const getUsersByIds = asyncHandler(async (req, res) => {
+  const { userIds } = req.body;
+
+  try {
+    // Validate input
+    if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide an array of user IDs",
+      });
+    }
+
+    // Find users by IDs, excluding password and version fields
+    const users = await User.find({
+      _id: { $in: userIds },
+    }).select("-password -__v");
+
+    // Return found users, even if some IDs weren't found
+    return res.json({
+      success: true,
+      data: users,
+      total: users.length,
+    });
+  } catch (err) {
+    console.error("Error fetching users by IDs:", err.message);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching users",
+      error: err.message,
+    });
+  }
+});
+
+module.exports = {
+  login,
+  register,
+  forgotPassword,
+  resetPassword,
+  getUsers,
+  getUsersByIds,
+};
